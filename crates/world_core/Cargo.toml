@@ -1,0 +1,13 @@
+[package]
+name = "world_core"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+shared_arena = "0.8.4"
+memory-stats = "1.0.0"
+ctor = { version = "0.2.6", features = [] }
+math = { path = "../math" }
+utils = { path = "../utils" }
