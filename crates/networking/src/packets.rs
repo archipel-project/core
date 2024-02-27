@@ -1,13 +1,13 @@
+use crate::errors::DeserializationError;
+use bytemuck::{bytes_of, from_bytes, pod_read_unaligned, Pod};
+use log::error;
 use std::collections::HashMap;
 use std::mem;
-use bytemuck::{bytes_of, from_bytes, Pod, pod_read_unaligned};
-use log::error;
-use crate::errors::DeserializationError;
 
 pub type PacketId = u8;
 pub type ByteBuf = Box<[u8]>;
-pub trait Packet : Sized {
-    const ID : PacketId;
+pub trait Packet: Sized {
+    const ID: PacketId;
 
     fn get_writing_byte_buff(capacity: usize) -> WritingByteBuf {
         let mut data = Vec::with_capacity(capacity + mem::size_of::<PacketId>());
@@ -25,16 +25,18 @@ trait PacketHandler {
 }
 
 struct PacketHandlerImpl<PacketType, CallBack>
-    where PacketType: Packet,
-          CallBack: Fn(PacketType) -> ()
+where
+    PacketType: Packet,
+    CallBack: Fn(PacketType) -> (),
 {
     callback: CallBack,
     phantom: std::marker::PhantomData<PacketType>,
 }
 
 impl<PacketType, CallBack> PacketHandler for PacketHandlerImpl<PacketType, CallBack>
-    where PacketType: Packet,
-          CallBack: Fn(PacketType) -> ()
+where
+    PacketType: Packet,
+    CallBack: Fn(PacketType) -> (),
 {
     fn handle_packet(&self, data: ReadingByteBuf) {
         let packet = PacketType::deserialize(data).unwrap();
@@ -54,11 +56,15 @@ impl Dispatcher {
     }
 
     pub fn register_handler<PacketType, CallBack>(&mut self, callback: CallBack)
-        where PacketType: Packet + 'static,
-              CallBack: Fn(PacketType) -> () + 'static
+    where
+        PacketType: Packet + 'static,
+        CallBack: Fn(PacketType) -> () + 'static,
     {
         assert!(self.handlers.get(&PacketType::ID).is_none());
-        let handler = PacketHandlerImpl { callback, phantom: std::marker::PhantomData };
+        let handler = PacketHandlerImpl {
+            callback,
+            phantom: std::marker::PhantomData,
+        };
         self.handlers.insert(PacketType::ID, Box::new(handler));
     }
 
@@ -68,8 +74,7 @@ impl Dispatcher {
         let handler = self.handlers.get(&id);
         if let Some(handler) = handler {
             handler.handle_packet(data);
-        }
-        else {
+        } else {
             error!("unknown packet received {}", id);
         }
     }
@@ -80,9 +85,9 @@ pub struct WritingByteBuf {
 }
 
 impl WritingByteBuf {
-
     pub fn write<T>(&mut self, value: T)
-        where T: Pod
+    where
+        T: Pod,
     {
         self.data.extend_from_slice(bytes_of(&value));
     }
@@ -107,7 +112,7 @@ impl ReadingByteBuf {
     fn new(data: Box<[u8]>) -> Self {
         Self {
             data,
-            offset: mem::size_of::<PacketId>()
+            offset: mem::size_of::<PacketId>(),
         }
     }
 
@@ -117,7 +122,8 @@ impl ReadingByteBuf {
     }
 
     pub fn read<T>(&mut self) -> Result<T, DeserializationError>
-        where T: Pod
+    where
+        T: Pod,
     {
         let type_size = mem::size_of::<T>();
         if self.offset + type_size > self.data.len() {
@@ -139,5 +145,3 @@ impl ReadingByteBuf {
         Ok(slice)
     }
 }
-
-

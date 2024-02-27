@@ -9,7 +9,6 @@ type ChunkPos = IVec3;
 /// A block position in the world, measured in blocks, valid from -2^31 to 2^31 - 1
 type BlockPos = IVec3;
 
-
 /// A world BlockPos for Entities or other things that need to be more precise than a block, it is a combination of a chunk position and a floating point block position
 /// useful for rendering
 pub struct EntityPos {
@@ -19,10 +18,11 @@ pub struct EntityPos {
 
 impl From<EntityPos> for DVec3 {
     fn from(pos: EntityPos) -> Self {
-        DVec3::new( //I hope this is precise enough
-                    (pos.chunk.x * CHUNK_SIZE) as f64 + pos.relative_pos.x as f64,
-                    (pos.chunk.y * CHUNK_SIZE) as f64 + pos.relative_pos.y as f64,
-                    (pos.chunk.z * CHUNK_SIZE) as f64 + pos.relative_pos.z as f64,
+        DVec3::new(
+            //I hope this is precise enough
+            (pos.chunk.x * CHUNK_SIZE) as f64 + pos.relative_pos.x as f64,
+            (pos.chunk.y * CHUNK_SIZE) as f64 + pos.relative_pos.y as f64,
+            (pos.chunk.z * CHUNK_SIZE) as f64 + pos.relative_pos.z as f64,
         )
     }
 }
@@ -39,11 +39,7 @@ impl From<EntityPos> for BlockPos {
 
 impl From<BlockPos> for EntityPos {
     fn from(pos: BlockPos) -> Self {
-        let chunk = IVec3::new(
-            pos.x / CHUNK_SIZE,
-            pos.y / CHUNK_SIZE,
-            pos.z / CHUNK_SIZE,
-        );
+        let chunk = IVec3::new(pos.x / CHUNK_SIZE, pos.y / CHUNK_SIZE, pos.z / CHUNK_SIZE);
         let relative_pos = Vec3::new(
             pos.x as f32 % CHUNK_SIZE_F,
             pos.y as f32 % CHUNK_SIZE_F,
@@ -65,7 +61,7 @@ impl EntityPos {
     }
 
     /// reduce the relative position to the range [0, CHUNK_SIZE]
-    pub fn shrink(&self) -> Self{
+    pub fn shrink(&self) -> Self {
         let new_relative_pos = Vec3::new(
             self.relative_pos.x % CHUNK_SIZE_F,
             self.relative_pos.y % CHUNK_SIZE_F,
@@ -81,6 +77,4 @@ impl EntityPos {
             relative_pos: new_relative_pos,
         }
     }
-
-
 }

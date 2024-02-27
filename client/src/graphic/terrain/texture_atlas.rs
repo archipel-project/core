@@ -1,9 +1,9 @@
-use image::RgbaImage;
 use crate::graphic::Context;
+use image::RgbaImage;
 
 //first we need to know all existing textures to create a texture atlas
 pub struct TextureAtlasBuilder {
-    pub vec: Vec<RgbaImage>
+    pub vec: Vec<RgbaImage>,
 }
 
 //store all texture blocks in a single texture
@@ -17,16 +17,20 @@ pub struct TextureAtlas {
 }
 
 impl TextureAtlas {
-
-    fn create_texture(block_texture_size: u32, block_texture_count: u32, context: &Context) -> wgpu::Texture {
+    fn create_texture(
+        block_texture_size: u32,
+        block_texture_count: u32,
+        context: &Context,
+    ) -> wgpu::Texture {
         let texture_size = wgpu::Extent3d {
             width: block_texture_size,
             height: block_texture_size,
             depth_or_array_layers: block_texture_count,
         };
 
-        let texture = context.wgpu_device.create_texture(
-            &wgpu::TextureDescriptor {
+        let texture = context
+            .wgpu_device
+            .create_texture(&wgpu::TextureDescriptor {
                 label: Some("Texture Atlas"),
                 size: texture_size,
                 mip_level_count: 1,
@@ -35,14 +39,14 @@ impl TextureAtlas {
                 format: wgpu::TextureFormat::Rgba8UnormSrgb, //because of rgba8
                 usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
-            }
-        );
+            });
         texture
     }
 
     fn create_sampler(context: &Context) -> wgpu::Sampler {
-        context.wgpu_device.create_sampler(
-            &wgpu::SamplerDescriptor {
+        context
+            .wgpu_device
+            .create_sampler(&wgpu::SamplerDescriptor {
                 label: Some("Diffuse Sampler"),
                 address_mode_u: wgpu::AddressMode::ClampToEdge,
                 address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -50,31 +54,40 @@ impl TextureAtlas {
                 mag_filter: wgpu::FilterMode::Nearest,
                 min_filter: wgpu::FilterMode::Linear,
                 ..Default::default()
-            }
-        )
+            })
     }
 
-    fn create_bind_group(atlas: &wgpu::Texture, texture_sampler: &wgpu::Sampler, layout: &wgpu::BindGroupLayout, context: &Context) -> wgpu::BindGroup {
-        context.wgpu_device.create_bind_group(
-            &wgpu::BindGroupDescriptor {
+    fn create_bind_group(
+        atlas: &wgpu::Texture,
+        texture_sampler: &wgpu::Sampler,
+        layout: &wgpu::BindGroupLayout,
+        context: &Context,
+    ) -> wgpu::BindGroup {
+        context
+            .wgpu_device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Texture Atlas Bind Group"),
                 layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&atlas.create_view(&wgpu::TextureViewDescriptor::default())),
+                        resource: wgpu::BindingResource::TextureView(
+                            &atlas.create_view(&wgpu::TextureViewDescriptor::default()),
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(texture_sampler),
                     },
-
                 ],
-            }
-        )
+            })
     }
 
-    pub fn new_exp(builder : TextureAtlasBuilder, block_texture_size: u32, context: &Context) -> Self {
+    pub fn new_exp(
+        builder: TextureAtlasBuilder,
+        block_texture_size: u32,
+        context: &Context,
+    ) -> Self {
         let atlas = Self::create_texture(block_texture_size, builder.vec.len() as u32, context);
 
         let block_texture_size = wgpu::Extent3d {
@@ -89,14 +102,18 @@ impl TextureAtlas {
                 wgpu::ImageCopyTexture {
                     texture: &atlas,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: i as u32 },
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: i as u32,
+                    },
                     aspect: wgpu::TextureAspect::All,
                 },
                 &block_texture,
                 wgpu::ImageDataLayout {
                     offset: 0,
                     bytes_per_row: Some(4 * block_texture_size.width),
-                    rows_per_image: Some(block_texture_size.height)
+                    rows_per_image: Some(block_texture_size.height),
                 },
                 block_texture_size,
             );
@@ -104,7 +121,8 @@ impl TextureAtlas {
 
         let texture_sampler = Self::create_sampler(context);
         let bind_group_layout = Self::create_bind_group_layout(context);
-        let bind_group = Self::create_bind_group(&atlas, &texture_sampler, &bind_group_layout, context);
+        let bind_group =
+            Self::create_bind_group(&atlas, &texture_sampler, &bind_group_layout, context);
 
         Self {
             _atlas: atlas,
@@ -112,13 +130,12 @@ impl TextureAtlas {
             bind_group_layout,
             bind_group,
         }
-
     }
 
-
     pub fn create_bind_group_layout(context: &Context) -> wgpu::BindGroupLayout {
-        context.wgpu_device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor {
+        context
+            .wgpu_device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Texture Atlas Bind Group Layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -138,8 +155,7 @@ impl TextureAtlas {
                         count: None,
                     },
                 ],
-            }
-        )
+            })
     }
 
     pub fn get_bind_group_layout(&self) -> &wgpu::BindGroupLayout {

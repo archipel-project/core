@@ -1,6 +1,6 @@
 mod app;
-mod networking;
 mod graphic;
+mod networking;
 use app::App;
 
 fn main() -> anyhow::Result<()> {

@@ -1,13 +1,14 @@
 mod implementation;
 
-use shared_arena::{ArenaBox, SharedArena};
-use crate::block_state::{AIR, BlockState};
+use crate::block_state::{BlockState, AIR};
 use ctor::ctor;
 use implementation::{Chunk4Bits, Chunk8Bits, ChunkNative, InMemoryChunk};
 use math::IVec3;
+use shared_arena::{ArenaBox, SharedArena};
+use utils::memory_utils::MemorySize;
 
 pub type BlockPos = IVec3;
-pub const SIZE : i32 = 16;
+pub const SIZE: i32 = 16;
 pub type ChunkPos = IVec3;
 
 ///class where all memory used by the chunk is stored, should leave longer than all the world_core loaded in memory
@@ -16,7 +17,6 @@ pub struct ChunkMemoryPool {
     chunks8bits: SharedArena<Chunk8Bits>,
     chunks4bits: SharedArena<Chunk4Bits>,
 }
-
 
 impl ChunkMemoryPool {
     pub fn new() -> Self {
@@ -28,20 +28,20 @@ impl ChunkMemoryPool {
     }
 
     ///return the memory used and the memory pre-allocated but not used
-    pub fn stats(&self) -> (usize, usize) {
+    pub fn stats(&self) -> (MemorySize, MemorySize) {
         let (native_used, native_free) = self.chunks_native.stats();
         let (bits8_used, bits8_free) = self.chunks8bits.stats();
         let (bits4_used, bits4_free) = self.chunks4bits.stats();
 
         let memory_used = |native_used, bits8_used, bits4_used| {
-            native_used * std::mem::size_of::<ChunkNative>() +
-                bits8_used * std::mem::size_of::<Chunk8Bits>() +
-                bits4_used * std::mem::size_of::<Chunk4Bits>()
+            native_used * std::mem::size_of::<ChunkNative>()
+                + bits8_used * std::mem::size_of::<Chunk8Bits>()
+                + bits4_used * std::mem::size_of::<Chunk4Bits>()
         };
 
         let total_used = memory_used(native_used, bits8_used, bits4_used);
         let total_free = memory_used(native_free, bits8_free, bits4_free);
-        (total_used, total_free)
+        (total_used.into(), total_free.into())
     }
 }
 
@@ -52,26 +52,23 @@ enum ChunkHandle {
     Chunk4bits(ArenaBox<Chunk4Bits>),
 }
 
-
-
 ///represent a non-empty chunk loaded in memory, this class is responsible for the memory management of the chunk as well as the chunk format
 pub struct Chunk {
-    position : ChunkPos,
-    handle : ChunkHandle,
+    position: ChunkPos,
+    handle: ChunkHandle,
     //memory map and metadata can be safely added here
 }
 
 #[ctor]
 pub static MEMORY_MANAGER: ChunkMemoryPool = ChunkMemoryPool::new();
 
-
 impl Chunk {
-    pub const SIZE : i32 = SIZE;
+    pub const SIZE: i32 = SIZE;
 
     pub fn new(position: ChunkPos) -> Self {
         Self {
             position,
-            handle : ChunkHandle::ChunkEmpty,
+            handle: ChunkHandle::ChunkEmpty,
         }
     }
 
@@ -84,12 +81,12 @@ impl Chunk {
                 let mut new_handle = MEMORY_MANAGER.chunks_native.alloc(ChunkNative::new());
                 handle.promote_to(&mut new_handle);
                 self.handle = ChunkHandle::ChunkNative(new_handle);
-            },
+            }
             ChunkHandle::Chunk4bits(chunk) => {
                 let mut new_handle = MEMORY_MANAGER.chunks8bits.alloc(Chunk8Bits::new());
                 chunk.promote_to(&mut new_handle);
                 self.handle = ChunkHandle::Chunk8bits(new_handle)
-            },
+            }
             ChunkHandle::ChunkEmpty => {
                 let new_handle = MEMORY_MANAGER.chunks4bits.alloc(Chunk4Bits::new()); //nothing to copy
                 self.handle = ChunkHandle::Chunk4bits(new_handle)
@@ -120,16 +117,15 @@ impl Chunk {
             ChunkHandle::Chunk8bits(ref mut chunk) => chunk.try_set_block(pos, state),
             ChunkHandle::Chunk4bits(ref mut chunk) => chunk.try_set_block(pos, state),
             ChunkHandle::ChunkEmpty => false,
-        }{
+        } {
             self.promote();
-        };
+        }
     }
 
     ///get the position of the chunk in the world
     pub fn get_position(&self) -> ChunkPos {
         self.position
     }
-
 
     ///set the blockstate at the given position, just an alias for set_block
     pub fn set_block_at(&mut self, x: i32, y: i32, z: i32, state: BlockState) {

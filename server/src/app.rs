@@ -1,9 +1,8 @@
-use std::{thread, time::Duration};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, atomic};
-use std::time::Instant;
 use crate::networking;
-
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::{atomic, Arc};
+use std::time::Instant;
+use std::{thread, time::Duration};
 
 pub struct App {
     should_exit: Arc<atomic::AtomicBool>,
@@ -11,16 +10,14 @@ pub struct App {
 }
 
 impl App {
-
     pub fn new() -> anyhow::Result<Self> {
         // todo: do not hardcode the config
         let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 5000);
         let network_manager = networking::ServerNetworkHandler::new(socket_addr)?;
 
-
         Ok(Self {
             should_exit: Arc::new(atomic::AtomicBool::new(false)),
-            network_manager
+            network_manager,
         })
     }
 
@@ -46,7 +43,7 @@ impl App {
 
     fn running(&mut self) -> anyhow::Result<()> {
         println!("server running");
-        let mut last_updated  = Instant::now();
+        let mut last_updated = Instant::now();
         //main loop
         while self.should_exit() {
             let now = Instant::now();
@@ -60,12 +57,10 @@ impl App {
             let time_took = now.elapsed();
             if time_took > Duration::from_millis(50) {
                 println!("server is lagging");
-            }
-            else {
+            } else {
                 let time_to_sleep = Duration::from_millis(50) - time_took;
                 thread::sleep(time_to_sleep);
             }
-
         }
 
         Ok(())
@@ -81,6 +76,4 @@ impl App {
         self.network_manager.tick(delta_time)?;
         Ok(())
     }
-
-
 }

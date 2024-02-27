@@ -7,15 +7,17 @@ pub enum DeserializationError {
     InvalidPacketContent,
 }
 
-impl Error for DeserializationError {
-
-}
+impl Error for DeserializationError {}
 
 impl Display for DeserializationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            DeserializationError::NotEnoughBytes => "Not enough bytes",
-            DeserializationError::InvalidPacketContent => "Invalid packet content",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                DeserializationError::NotEnoughBytes => "Not enough bytes",
+                DeserializationError::InvalidPacketContent => "Invalid packet content",
+            }
+        )
     }
 }
