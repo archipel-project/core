@@ -1,3 +1,5 @@
 /target
 .idea
 flamegraph.svg
+/crates/gen/build
+.gradle

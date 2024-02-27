@@ -69,38 +69,26 @@ impl TerrainRenderer {
         context: &Context,
     ) -> Self {
         //todo: change that to a proper resource manager
+
+        let load_texture = |buffer: &[u8]| {
+            image::load_from_memory(buffer)
+                .unwrap()
+                .to_rgba8()
+        };
+
         let builder = TextureAtlasBuilder {
             vec: vec![
-                image::load_from_memory(include_bytes!("textures/diamond_block.png"))
-                    .unwrap()
-                    .to_rgba8(),
-                image::load_from_memory(include_bytes!("textures/emerald_block.png"))
-                    .unwrap()
-                    .to_rgba8(),
-                image::load_from_memory(include_bytes!("textures/lapis_block.png"))
-                    .unwrap()
-                    .to_rgba8(),
-                image::load_from_memory(include_bytes!("textures/gold_block.png"))
-                    .unwrap()
-                    .to_rgba8(),
-                image::load_from_memory(include_bytes!("textures/iron_block.png"))
-                    .unwrap()
-                    .to_rgba8(),
-                image::load_from_memory(include_bytes!("textures/coal_block.png"))
-                    .unwrap()
-                    .to_rgba8(),
-                image::load_from_memory(include_bytes!("textures/wool_colored_red.png"))
-                    .unwrap()
-                    .to_rgba8(),
-                image::load_from_memory(include_bytes!("textures/hay_block_top.png"))
-                    .unwrap()
-                    .to_rgba8(),
-                image::load_from_memory(include_bytes!("textures/hay_block_side.png"))
-                    .unwrap()
-                    .to_rgba8(),
-                image::load_from_memory(include_bytes!("textures/grass_block_top.png"))
-                    .unwrap()
-                    .to_rgba8(),
+                load_texture(include_bytes!("textures/stone.png")),
+                load_texture(include_bytes!("textures/diamond_block.png")),
+                load_texture(include_bytes!("textures/emerald_block.png")),
+                load_texture(include_bytes!("textures/lapis_block.png")),
+                load_texture(include_bytes!("textures/gold_block.png")),
+                load_texture(include_bytes!("textures/iron_block.png")),
+                load_texture(include_bytes!("textures/coal_block.png")),
+                load_texture(include_bytes!("textures/wool_colored_red.png")),
+                load_texture(include_bytes!("textures/hay_block_top.png")),
+                load_texture(include_bytes!("textures/hay_block_side.png")),
+                load_texture(include_bytes!("textures/grass_block_top.png")),
             ],
         };
 
@@ -578,6 +566,7 @@ impl ChunkMesh {
                     if blockstate == AIR {
                         continue;
                     }
+                    let blockstate = (blockstate -1) as u32;
 
                     let texture_coordinates = texture_atlas.get_texture_coordinates();
                     let fx = x as f32;
@@ -590,7 +579,7 @@ impl ChunkMesh {
                             fz,
                             Face::Top,
                             texture_coordinates,
-                            blockstate as u32,
+                            blockstate,
                         );
                     }
                     if get_block_at(x, y - 1, z) == AIR {
@@ -600,7 +589,7 @@ impl ChunkMesh {
                             fz,
                             Face::Bottom,
                             texture_coordinates,
-                            blockstate as u32,
+                            blockstate,
                         );
                     }
                     if get_block_at(x - 1, y, z) == AIR {
@@ -610,7 +599,7 @@ impl ChunkMesh {
                             fz,
                             Face::West,
                             texture_coordinates,
-                            blockstate as u32,
+                            blockstate,
                         );
                     }
                     if get_block_at(x + 1, y, z) == AIR {
@@ -620,7 +609,7 @@ impl ChunkMesh {
                             fz,
                             Face::East,
                             texture_coordinates,
-                            blockstate as u32,
+                            blockstate,
                         );
                     }
                     if get_block_at(x, y, z - 1) == AIR {
@@ -630,7 +619,7 @@ impl ChunkMesh {
                             fz,
                             Face::North,
                             texture_coordinates,
-                            blockstate as u32,
+                            blockstate,
                         );
                     }
                     if get_block_at(x, y, z + 1) == AIR {
@@ -640,7 +629,7 @@ impl ChunkMesh {
                             fz,
                             Face::South,
                             texture_coordinates,
-                            blockstate as u32,
+                            blockstate,
                         );
                     }
                 }

@@ -6,5 +6,6 @@ members = [
     "crates/networking",
     "crates/world_core",
     "crates/math",
-    "crates/utils"
+    "crates/utils",
+    "crates/gen"
 ]

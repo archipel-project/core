@@ -10,6 +10,7 @@ use math::{vec3, Vec3};
 use rand::Rng;
 use std::fmt::Display;
 use std::time::{Duration, Instant};
+use gen::Generator;
 use world_core::{BlockPos, Chunk, ChunkManager, ChunkPos, MEMORY_MANAGER};
 
 fn main_menu(gui_wrapper: &mut GUIWrapper<GUIData>, ctx: &egui::Context, data: &mut GUIData) {
@@ -24,6 +25,8 @@ fn main_menu(gui_wrapper: &mut GUIWrapper<GUIData>, ctx: &egui::Context, data: &
         if ui.button("more options").clicked() {
             gui_wrapper.set_gui(other_gui);
         }
+
+        ui.label(format!("position: {}", data.pos));
     });
 }
 
@@ -43,6 +46,7 @@ fn other_gui(gui_wrapper: &mut GUIWrapper<GUIData>, ctx: &egui::Context, guidata
 struct GUIData {
     second_per_frame: f32,
     regenerate: bool,
+    pos: Vec3,
 }
 
 struct CameraController {
@@ -155,14 +159,17 @@ pub struct App {
 }
 
 impl App {
-    fn regenerate_cube(chunk_manager: &mut ChunkManager) {
+    fn regenerate_cube(chunk_manager: &mut ChunkManager, generator : &mut Generator) {
         //make a platform
-        let mut build_platform = |x: i32, z: i32, y: i32, block: u16| {
-            let mut rng = rand::thread_rng();
+        let mut build_chunk = |x: i32, z: i32, y: i32| {
             let mut chunk = Chunk::new(ChunkPos::new(x, y, z));
             for ix in 0..16 {
                 for iz in 0..16 {
-                    for iy in 0..3 + rng.gen_range(0..3) {
+                    for iy in 0..16 {
+                        let block = generator.get_block(ix + x * 16, iy + y * 16, iz + z * 16) as u16;
+
+
+
                         chunk.set_block(BlockPos::new(ix, iy, iz), block);
                     }
                 }
@@ -170,11 +177,10 @@ impl App {
             chunk_manager.insert_chunk(chunk);
         };
 
-        for x in -20..20 {
-            for z in -20..20 {
-                for y in 0..1 {
-                    let mut rng = rand::thread_rng();
-                    build_platform(x, z, y, rng.gen_range(1..10));
+        for x in -10..10 {
+            for z in -10..10 {
+                for y in -5..5 {
+                    build_chunk(x, z, y);
                 }
             }
         }
@@ -204,10 +210,14 @@ impl App {
 
         //todo: move this to a better place, when the network will be implemented
         let mut chunk_manager = ChunkManager::new();
-        Self::regenerate_cube(&mut chunk_manager);
+
+        let mut generator = Generator::new("crates/gen/build/libs/generator-1.0.0.jar", 42)?;
+
+
+        Self::regenerate_cube(&mut chunk_manager, &mut generator);
 
         let terrain_renderer =
-            graphic::terrain::TerrainRenderer::new(&camera, 16, &chunk_manager, &graphic_context);
+            graphic::terrain::TerrainRenderer::new(&camera, 8, &chunk_manager, &graphic_context);
 
         Ok((
             Self {
@@ -282,6 +292,7 @@ impl App {
         let mut gui_data = GUIData {
             second_per_frame: delta_time.as_secs_f32(),
             regenerate: false,
+            pos: self.camera.position,
         };
 
         self.camera_controller
@@ -290,7 +301,7 @@ impl App {
             .update_gui(&self.window, &self.graphic_context, &mut gui_data);
 
         if gui_data.regenerate {
-            Self::regenerate_cube(&mut self.chunk_manager);
+            //Self::regenerate_cube(&mut self.chunk_manager); //todo: move this to a better place
         }
 
         if self.window.should_be_rendered() {

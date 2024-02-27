@@ -1,0 +1,10 @@
+[package]
+name = "gen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.80"
+zip = "0.6.6"
+jni = { version = "0.21.1", features = ["invocation"] }
+ctor = "0.2.7"
