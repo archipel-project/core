@@ -3,18 +3,19 @@ package org.archipel.generator;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 
 public class ImprovedPerlinNoise
 {
     private final int[] permutations;
 
-    public ImprovedPerlinNoise()
+    public ImprovedPerlinNoise(Random random)
     {
         final List<Integer> list = new ArrayList<>(256);
         for (int i = 0; i < 256; i++)
             list.add(i);
 
-        Collections.shuffle(list);
+        Collections.shuffle(list, random);
 
         this.permutations = new int[512];
         for (int i = 0; i < 256; i++)
@@ -79,7 +80,8 @@ public class ImprovedPerlinNoise
         return this.lerp(u, this.lerp(v, dotBottomLeft, dotTopLeft), this.lerp(v, dotBottomRight, dotTopRight));
     }
 
-    public float fractalBrownianMotion(int x, int y, int numOctaves) {
+    public float fractalBrownianMotion(float x, float y, int numOctaves)
+    {
         float result = 0.0f;
         float amplitude = 1.0f;
         float frequency = 0.005f;
