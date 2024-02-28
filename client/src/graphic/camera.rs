@@ -1,3 +1,4 @@
+use std::f32::consts::PI;
 use super::Context;
 use egui_winit::winit::event::WindowEvent;
 use math::{quat, EulerRot, Mat4, Quat, Vec3};
@@ -95,8 +96,7 @@ impl Camera {
 
     fn build_view_proj_matrix(&self) -> CameraUniform {
         //todo: view is really wrong
-        let rotation = Quat::from_euler(EulerRot::XYZ, self.pitch, self.yaw, 0.0)
-            * Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        let rotation = Quat::from_euler(EulerRot::XYZ, self.pitch, self.yaw, 0.0) * Quat::from_rotation_y(PI);
         let view = Mat4::from_quat(rotation) * Mat4::from_translation(-self.position);
 
         let proj = Mat4::perspective_infinite_rh(self.fov, self.ratio, 0.1);

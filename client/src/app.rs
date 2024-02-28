@@ -1,3 +1,4 @@
+use std::f32::consts::{FRAC_PI_2, PI};
 use crate::graphic;
 use crate::graphic::ui::GUIWrapper;
 use crate::graphic::FrameRenderer;
@@ -26,7 +27,9 @@ fn main_menu(gui_wrapper: &mut GUIWrapper<GUIData>, ctx: &egui::Context, data: &
             gui_wrapper.set_gui(other_gui);
         }
 
-        ui.label(format!("position: {}", data.pos));
+        ui.label(format!("position: x: {:04}, y: {:04}, z:{:04}", data.pos.x, data.pos.y, data.pos.z));
+        ui.label(format!("yaw: {:.2}, pitch: {:.2}", data.yaw * 180.0/ PI, data.pitch  * 180.0/ PI));
+
     });
 }
 
@@ -47,6 +50,8 @@ struct GUIData {
     second_per_frame: f32,
     regenerate: bool,
     pos: Vec3,
+    yaw: f32,
+    pitch: f32,
 }
 
 struct CameraController {
@@ -115,8 +120,11 @@ impl CameraController {
 
         camera.pitch = camera
             .pitch
-            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
-        camera.yaw %= std::f32::consts::PI * 2.0;
+            .clamp(-FRAC_PI_2, FRAC_PI_2);
+
+        while camera.yaw > PI { camera.yaw -= 2.0 * PI; }
+        while camera.yaw < -PI { camera.yaw += 2.0 * PI; }
+
         self.mouse_x = 0.0;
         self.mouse_y = 0.0;
 
@@ -124,16 +132,16 @@ impl CameraController {
         let delta_time = delta_time.as_secs_f32();
         let mut direction = Vec3::ZERO;
         if self.is_front_pressed {
-            direction += Vec3::new(camera.yaw.cos(), 0.0, camera.yaw.sin());
+            direction += Vec3::new(-camera.yaw.sin(), 0.0, camera.yaw.cos());
         }
         if self.is_back_pressed {
-            direction += Vec3::new(-camera.yaw.cos(), 0.0, -camera.yaw.sin());
-        }
-        if self.is_left_pressed {
             direction += Vec3::new(camera.yaw.sin(), 0.0, -camera.yaw.cos());
         }
+        if self.is_left_pressed {
+            direction += Vec3::new(camera.yaw.cos(), 0.0, camera.yaw.sin());
+        }
         if self.is_right_pressed {
-            direction += Vec3::new(-camera.yaw.sin(), 0.0, camera.yaw.cos());
+            direction += Vec3::new(-camera.yaw.cos(), 0.0, -camera.yaw.sin());
         }
 
         if self.is_up_pressed {
@@ -203,7 +211,7 @@ impl App {
             0.0,
             0.0,
             vec3(0.0, 0.0, 2.0),
-            90.0 * std::f32::consts::PI / 180.0,
+            90.0 * PI / 180.0,
             ratio,
             &graphic_context,
         );
@@ -293,6 +301,8 @@ impl App {
             second_per_frame: delta_time.as_secs_f32(),
             regenerate: false,
             pos: self.camera.position,
+            yaw: self.camera.yaw,
+            pitch: self.camera.pitch,
         };
 
         self.camera_controller
