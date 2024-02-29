@@ -1,15 +1,16 @@
 mod texture_atlas;
 
-use super::camera::Camera;
+use super::camera::{Camera, CameraFrustum};
 use super::{Context, RenderJob};
 use crate::graphic::terrain::texture_atlas::{
     TextureAtlas, TextureAtlasBuilder, TextureCoordinates,
 };
-use math::AABB;
+use math::consts::CHUNK_SIZE;
+use math::positions::ChunkPos;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use wgpu::util::DeviceExt;
-use world_core::{block_state::AIR, chunk, ChunkManager, ChunkPos};
+use world_core::{block_state::AIR, ChunkManager};
 
 struct OrderedChunkPos(ChunkPos);
 
@@ -58,7 +59,7 @@ pub struct TerrainRenderer {
     texture_atlas: TextureAtlas,
     chunks_meshes: BTreeMap<OrderedChunkPos, ChunkMesh>,
     render_distance: i32,
-    last_camera_pos: ChunkPos,
+    last_frustum: CameraFrustum,
 }
 
 impl TerrainRenderer {
@@ -70,11 +71,7 @@ impl TerrainRenderer {
     ) -> Self {
         //todo: change that to a proper resource manager
 
-        let load_texture = |buffer: &[u8]| {
-            image::load_from_memory(buffer)
-                .unwrap()
-                .to_rgba8()
-        };
+        let load_texture = |buffer: &[u8]| image::load_from_memory(buffer).unwrap().to_rgba8();
 
         let builder = TextureAtlasBuilder {
             vec: vec![
@@ -148,18 +145,11 @@ impl TerrainRenderer {
                     multiview: None,
                 });
 
-        let camera_pos = camera
-            .position
-            .as_ivec3()
-            .div_euclid([chunk::SIZE, chunk::SIZE, chunk::SIZE].into());
         let mut chunks_meshes = BTreeMap::new();
-
-        let camera_aabb = AABB::new(
-            camera_pos - ChunkPos::ONE * render_distance,
-            camera_pos + ChunkPos::ONE * render_distance,
-        );
-        let chunk_to_display = chunk_manager.get_chunks_in(camera_aabb);
-        for chunk in chunk_to_display {
+        let frustum = camera.get_frustum(render_distance);
+        let chunks_to_display = chunk_manager
+            .get_chunk_with_predicate(frustum.get_aabb(), |aabb| frustum.contains(&aabb));
+        for chunk in chunks_to_display {
             if let Some(mesh) =
                 ChunkMesh::build_from(chunk_manager, chunk.get_position(), &texture_atlas, context)
             {
@@ -167,15 +157,17 @@ impl TerrainRenderer {
             }
         }
 
-        //todo: load the chunks around the camera
-
         Self {
             render_distance,
             render_pipeline,
             texture_atlas,
             chunks_meshes,
-            last_camera_pos: camera_pos,
+            last_frustum: frustum,
         }
+    }
+
+    pub fn rendered_mesh_count(&self) -> usize {
+        self.chunks_meshes.len()
     }
 
     pub fn build_render_job<'a>(
@@ -184,32 +176,38 @@ impl TerrainRenderer {
         camera: &'a Camera,
         context: &'a Context,
     ) -> TerrainRenderJob<'a> {
-        let old_camera_pos = self.last_camera_pos;
-        let old_camera_aabb = AABB::new(
-            old_camera_pos - ChunkPos::ONE * self.render_distance,
-            old_camera_pos + ChunkPos::ONE * self.render_distance,
-        );
-        let camera_pos = camera
-            .position
-            .as_ivec3()
-            .div_euclid([chunk::SIZE, chunk::SIZE, chunk::SIZE].into());
-        let camera_aabb = AABB::new(
-            camera_pos - ChunkPos::ONE * self.render_distance,
-            camera_pos + ChunkPos::ONE * self.render_distance,
-        );
-        self.last_camera_pos = camera_pos; //update the last camera position for the next frame
+        let old_frustum = &self.last_frustum;
+        let new_frustum = camera.get_frustum(self.render_distance);
 
-        //remove all chunks that are not in the render distance
-        let chunk_to_remove = chunk_manager
-            .get_chunk_with_predicate(old_camera_aabb, |aabb| !camera_aabb.totally_contains(&aabb));
-        for chunk in chunk_to_remove {
+        //difference between two frustum
+        let diff = |aabb, frustum1: &CameraFrustum, frustum2: &CameraFrustum| {
+            if frustum1.contains(&aabb) {
+                //if frustum2.totally_contains(&aabb) { false } //todo: early exit
+                if aabb.is_unit() {
+                    //if this is a chunk
+                    !(frustum2.contains(&aabb) && frustum2.get_aabb().intersects(&aabb))
+                //we keep it if it's not in the frustum2
+                } else {
+                    true
+                } //it's too early to tell if we should keep it or not
+            } else {
+                false
+            } //we don't keep it if it's not in the frustum1
+        };
+
+        let chunks_to_remove = chunk_manager
+            .get_chunk_with_predicate(old_frustum.get_aabb(), |aabb| {
+                diff(aabb, old_frustum, &new_frustum)
+            });
+        let chunks_to_display = chunk_manager
+            .get_chunk_with_predicate(new_frustum.get_aabb(), |aabb| {
+                diff(aabb, &new_frustum, old_frustum)
+            });
+
+        for chunk in chunks_to_remove {
             self.chunks_meshes.remove(&chunk.get_position().into());
         }
-
-        //get the new chunks to display
-        let new_chunk_to_display = chunk_manager
-            .get_chunk_with_predicate(camera_aabb, |aabb| !old_camera_aabb.totally_contains(&aabb));
-        for chunk in new_chunk_to_display {
+        for chunk in chunks_to_display {
             if let Some(mesh) = ChunkMesh::build_from(
                 chunk_manager,
                 chunk.get_position(),
@@ -219,6 +217,8 @@ impl TerrainRenderer {
                 self.chunks_meshes.insert(chunk.get_position().into(), mesh);
             }
         }
+
+        self.last_frustum = new_frustum;
 
         let pos = self
             .chunks_meshes
@@ -355,26 +355,26 @@ impl ChunkMesh {
         }
 
         let get_block_at = |x: i32, y: i32, z: i32| {
-            if x >= 0 && x < chunk::SIZE && y >= 0 && y < chunk::SIZE && z >= 0 && z < chunk::SIZE {
+            if x >= 0 && x < CHUNK_SIZE && y >= 0 && y < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE {
                 return chunk.get_block_at(x, y, z);
             }
             if x < 0 {
-                return west_chunk.map_or(AIR, |c| c.get_block_at(x + chunk::SIZE, y, z));
+                return west_chunk.map_or(AIR, |c| c.get_block_at(x + CHUNK_SIZE, y, z));
             }
-            if x >= chunk::SIZE {
-                return east_chunk.map_or(AIR, |c| c.get_block_at(x - chunk::SIZE, y, z));
+            if x >= CHUNK_SIZE {
+                return east_chunk.map_or(AIR, |c| c.get_block_at(x - CHUNK_SIZE, y, z));
             }
             if y < 0 {
-                return bottom_chunk.map_or(AIR, |c| c.get_block_at(x, y + chunk::SIZE, z));
+                return bottom_chunk.map_or(AIR, |c| c.get_block_at(x, y + CHUNK_SIZE, z));
             }
-            if y >= chunk::SIZE {
-                return top_chunk.map_or(AIR, |c| c.get_block_at(x, y - chunk::SIZE, z));
+            if y >= CHUNK_SIZE {
+                return top_chunk.map_or(AIR, |c| c.get_block_at(x, y - CHUNK_SIZE, z));
             }
             if z < 0 {
-                return north_chunk.map_or(AIR, |c| c.get_block_at(x, y, z + chunk::SIZE));
+                return north_chunk.map_or(AIR, |c| c.get_block_at(x, y, z + CHUNK_SIZE));
             }
-            if z >= chunk::SIZE {
-                return south_chunk.map_or(AIR, |c| c.get_block_at(x, y, z - chunk::SIZE));
+            if z >= CHUNK_SIZE {
+                return south_chunk.map_or(AIR, |c| c.get_block_at(x, y, z - CHUNK_SIZE));
             }
             AIR
         };
@@ -559,78 +559,36 @@ impl ChunkMesh {
                 }
             };
 
-        for y in 0..chunk::SIZE {
-            for z in 0..chunk::SIZE {
-                for x in 0..chunk::SIZE {
+        for y in 0..CHUNK_SIZE {
+            for z in 0..CHUNK_SIZE {
+                for x in 0..CHUNK_SIZE {
                     let blockstate = chunk.get_block_at(x, y, z);
                     if blockstate == AIR {
                         continue;
                     }
-                    let blockstate = (blockstate -1) as u32;
+                    let blockstate = (blockstate - 1) as u32;
 
                     let texture_coordinates = texture_atlas.get_texture_coordinates();
                     let fx = x as f32;
                     let fy = y as f32;
                     let fz = z as f32;
                     if get_block_at(x, y + 1, z) == AIR {
-                        add_face(
-                            fx,
-                            fy,
-                            fz,
-                            Face::Top,
-                            texture_coordinates,
-                            blockstate,
-                        );
+                        add_face(fx, fy, fz, Face::Top, texture_coordinates, blockstate);
                     }
                     if get_block_at(x, y - 1, z) == AIR {
-                        add_face(
-                            fx,
-                            fy,
-                            fz,
-                            Face::Bottom,
-                            texture_coordinates,
-                            blockstate,
-                        );
+                        add_face(fx, fy, fz, Face::Bottom, texture_coordinates, blockstate);
                     }
                     if get_block_at(x - 1, y, z) == AIR {
-                        add_face(
-                            fx,
-                            fy,
-                            fz,
-                            Face::West,
-                            texture_coordinates,
-                            blockstate,
-                        );
+                        add_face(fx, fy, fz, Face::West, texture_coordinates, blockstate);
                     }
                     if get_block_at(x + 1, y, z) == AIR {
-                        add_face(
-                            fx,
-                            fy,
-                            fz,
-                            Face::East,
-                            texture_coordinates,
-                            blockstate,
-                        );
+                        add_face(fx, fy, fz, Face::East, texture_coordinates, blockstate);
                     }
                     if get_block_at(x, y, z - 1) == AIR {
-                        add_face(
-                            fx,
-                            fy,
-                            fz,
-                            Face::North,
-                            texture_coordinates,
-                            blockstate,
-                        );
+                        add_face(fx, fy, fz, Face::North, texture_coordinates, blockstate);
                     }
                     if get_block_at(x, y, z + 1) == AIR {
-                        add_face(
-                            fx,
-                            fy,
-                            fz,
-                            Face::South,
-                            texture_coordinates,
-                            blockstate,
-                        );
+                        add_face(fx, fy, fz, Face::South, texture_coordinates, blockstate);
                     }
                 }
             }

@@ -1,4 +1,3 @@
-use std::f32::consts::{FRAC_PI_2, PI};
 use crate::graphic;
 use crate::graphic::ui::GUIWrapper;
 use crate::graphic::FrameRenderer;
@@ -7,12 +6,12 @@ use egui_winit::winit::event::{DeviceEvent, ElementState, Event, RawKeyEvent, Wi
 use egui_winit::winit::event_loop::{EventLoop, EventLoopWindowTarget};
 use egui_winit::winit::keyboard::{KeyCode, PhysicalKey};
 use egui_winit::winit::window::WindowBuilder;
-use math::{vec3, Vec3};
-use rand::Rng;
-use std::fmt::Display;
-use std::time::{Duration, Instant};
 use gen::Generator;
-use world_core::{BlockPos, Chunk, ChunkManager, ChunkPos, MEMORY_MANAGER};
+use math::positions::{BlockPos, ChunkPos, EntityPos};
+use math::{DVec3, Vec3};
+use std::f32::consts::{FRAC_PI_2, PI};
+use std::time::{Duration, Instant};
+use world_core::{Chunk, ChunkManager, MEMORY_MANAGER};
 
 fn main_menu(gui_wrapper: &mut GUIWrapper<GUIData>, ctx: &egui::Context, data: &mut GUIData) {
     egui::Window::new("Tool box").show(ctx, |ui| {
@@ -27,9 +26,16 @@ fn main_menu(gui_wrapper: &mut GUIWrapper<GUIData>, ctx: &egui::Context, data: &
             gui_wrapper.set_gui(other_gui);
         }
 
-        ui.label(format!("position: x: {:04}, y: {:04}, z:{:04}", data.pos.x, data.pos.y, data.pos.z));
-        ui.label(format!("yaw: {:.2}, pitch: {:.2}", data.yaw * 180.0/ PI, data.pitch  * 180.0/ PI));
-
+        ui.label(format!(
+            "position: x: {:.4}, y: {:.2}, z:{:.2}",
+            data.pos.x, data.pos.y, data.pos.z
+        ));
+        ui.label(format!(
+            "yaw: {:.2}, pitch: {:.2}",
+            data.yaw * 180.0 / PI,
+            data.pitch * 180.0 / PI
+        ));
+        ui.label(format!("rendered mesh count: {}", data.rendered_mesh_count));
     });
 }
 
@@ -49,9 +55,10 @@ fn other_gui(gui_wrapper: &mut GUIWrapper<GUIData>, ctx: &egui::Context, guidata
 struct GUIData {
     second_per_frame: f32,
     regenerate: bool,
-    pos: Vec3,
+    pos: DVec3,
     yaw: f32,
     pitch: f32,
+    rendered_mesh_count: usize,
 }
 
 struct CameraController {
@@ -118,12 +125,14 @@ impl CameraController {
 
         camera.pitch += self.mouse_y as f32 * 0.0025;
 
-        camera.pitch = camera
-            .pitch
-            .clamp(-FRAC_PI_2, FRAC_PI_2);
+        camera.pitch = camera.pitch.clamp(-FRAC_PI_2, FRAC_PI_2);
 
-        while camera.yaw > PI { camera.yaw -= 2.0 * PI; }
-        while camera.yaw < -PI { camera.yaw += 2.0 * PI; }
+        while camera.yaw > PI {
+            camera.yaw -= 2.0 * PI;
+        }
+        while camera.yaw < -PI {
+            camera.yaw += 2.0 * PI;
+        }
 
         self.mouse_x = 0.0;
         self.mouse_y = 0.0;
@@ -151,6 +160,7 @@ impl CameraController {
             direction -= Vec3::Y;
         }
         camera.position += direction.normalize_or_zero() * speed * delta_time;
+        camera.position.try_shrink();
     }
 }
 
@@ -167,17 +177,16 @@ pub struct App {
 }
 
 impl App {
-    fn regenerate_cube(chunk_manager: &mut ChunkManager, generator : &mut Generator) {
+    fn regenerate_cube(chunk_manager: &mut ChunkManager, generator: &mut Generator) {
         //make a platform
         let mut build_chunk = |x: i32, z: i32, y: i32| {
             let mut chunk = Chunk::new(ChunkPos::new(x, y, z));
+
             for ix in 0..16 {
                 for iz in 0..16 {
                     for iy in 0..16 {
-                        let block = generator.get_block(ix + x * 16, iy + y * 16, iz + z * 16) as u16;
-
-
-
+                        let block =
+                            generator.get_block(ix + x * 16, iy + y * 16, iz + z * 16) as u16;
                         chunk.set_block(BlockPos::new(ix, iy, iz), block);
                     }
                 }
@@ -210,7 +219,7 @@ impl App {
         let camera = graphic::camera::Camera::new(
             0.0,
             0.0,
-            vec3(0.0, 0.0, 2.0),
+            EntityPos::from(0.0, 0.0, 2.0),
             90.0 * PI / 180.0,
             ratio,
             &graphic_context,
@@ -221,11 +230,10 @@ impl App {
 
         let mut generator = Generator::new("crates/gen/build/libs/generator-1.0.0.jar", 42)?;
 
-
         Self::regenerate_cube(&mut chunk_manager, &mut generator);
 
         let terrain_renderer =
-            graphic::terrain::TerrainRenderer::new(&camera, 8, &chunk_manager, &graphic_context);
+            graphic::terrain::TerrainRenderer::new(&camera, 12, &chunk_manager, &graphic_context);
 
         Ok((
             Self {
@@ -300,9 +308,10 @@ impl App {
         let mut gui_data = GUIData {
             second_per_frame: delta_time.as_secs_f32(),
             regenerate: false,
-            pos: self.camera.position,
+            pos: self.camera.position.into(),
             yaw: self.camera.yaw,
             pitch: self.camera.pitch,
+            rendered_mesh_count: self.terrain_renderer.rendered_mesh_count(),
         };
 
         self.camera_controller

@@ -56,7 +56,7 @@ impl<'a> Generator<'a> {
 
         let generator_class = env.find_class("org/archipel/generator/Generator")?;
         let jvalue = JValue::from(seed);
-        let generator_java_instance = env.new_object::<'a>(&generator_class, "(J)V", &[jvalue])?;
+        let generator_java_instance = env.new_object(&generator_class, "(J)V", &[jvalue])?;
         let get_block_method = env.get_method_id(generator_class, "getBlock", "(III)I")?;
 
         Ok(Self {

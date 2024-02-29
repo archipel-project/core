@@ -3,13 +3,10 @@ mod implementation;
 use crate::block_state::{BlockState, AIR};
 use ctor::ctor;
 use implementation::{Chunk4Bits, Chunk8Bits, ChunkNative, InMemoryChunk};
-use math::IVec3;
+use math::positions::{BlockPos, ChunkPos};
+use math::{consts::CHUNK_SIZE, IVec3};
 use shared_arena::{ArenaBox, SharedArena};
 use utils::memory_utils::MemorySize;
-
-pub type BlockPos = IVec3;
-pub const SIZE: i32 = 16;
-pub type ChunkPos = IVec3;
 
 ///class where all memory used by the chunk is stored, should leave longer than all the world_core loaded in memory
 pub struct ChunkMemoryPool {
@@ -63,7 +60,7 @@ pub struct Chunk {
 pub static MEMORY_MANAGER: ChunkMemoryPool = ChunkMemoryPool::new();
 
 impl Chunk {
-    pub const SIZE: i32 = SIZE;
+    pub const SIZE: i32 = CHUNK_SIZE;
 
     pub fn new(position: ChunkPos) -> Self {
         Self {
@@ -140,8 +137,8 @@ impl Chunk {
 
     ///get the AABB of the chunk in block coordinate
     pub fn get_aabb_in_block(&self) -> (IVec3, IVec3) {
-        let min = self.position * SIZE;
-        let max = min + IVec3::new(SIZE, SIZE, SIZE);
+        let min = self.position * CHUNK_SIZE;
+        let max = min + IVec3::new(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE);
         (min, max)
     }
 }

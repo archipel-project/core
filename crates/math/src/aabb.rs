@@ -57,7 +57,30 @@ impl AABB {
             && self.max.z >= other.max.z
     }
 
+    pub fn corners(&self) -> [IVec3; 8] {
+        [
+            IVec3::new(self.min.x, self.min.y, self.min.z),
+            IVec3::new(self.min.x, self.min.y, self.max.z),
+            IVec3::new(self.min.x, self.max.y, self.min.z),
+            IVec3::new(self.min.x, self.max.y, self.max.z),
+            IVec3::new(self.max.x, self.min.y, self.min.z),
+            IVec3::new(self.max.x, self.min.y, self.max.z),
+            IVec3::new(self.max.x, self.max.y, self.min.z),
+            IVec3::new(self.max.x, self.max.y, self.max.z),
+        ]
+    }
+
     pub fn get_volume(&self) -> i32 {
-        (self.max.x - self.min.x) * (self.max.y - self.min.y) * (self.max.z - self.min.z)
+        let size = self.size();
+        size.x * size.y * size.z
+    }
+
+    pub fn size(&self) -> IVec3 {
+        self.max - self.min
+    }
+
+    pub fn is_unit(&self) -> bool {
+        let size = self.size();
+        size.x == 1 && size.y == 1 && size.z == 1
     }
 }

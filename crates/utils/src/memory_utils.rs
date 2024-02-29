@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Display;
 
 pub enum MemorySize {
     Bytes(usize),

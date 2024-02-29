@@ -1,5 +1,6 @@
 use crate::block_state::{BlockState, AIR};
-use crate::chunk::{BlockPos, SIZE};
+use crate::chunk::BlockPos;
+use math::consts::CHUNK_SIZE;
 
 ///a common interface for all types of world_core in memory
 pub trait InMemoryChunk {
@@ -14,26 +15,27 @@ const AVAILABLE_PALETTE_ENTRY: BlockState = AIR;
 ///stores blockStates without any compression. There is no limit of blockState Variants.
 ///use 8192 bytes of memory
 pub struct ChunkNative {
-    blocks: [BlockState; (SIZE * SIZE * SIZE) as usize],
+    blocks: [BlockState; (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) as usize],
 }
 
 impl ChunkNative {
     pub fn new() -> ChunkNative {
         ChunkNative {
-            blocks: [AVAILABLE_PALETTE_ENTRY; (SIZE * SIZE * SIZE) as usize],
+            blocks: [AVAILABLE_PALETTE_ENTRY; (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) as usize],
         }
     }
 }
 
 impl InMemoryChunk for ChunkNative {
     fn get_block(&self, pos: BlockPos) -> BlockState {
-        assert!(pos.x < SIZE && pos.y < SIZE && pos.z < SIZE);
-        self.blocks[(pos.x + pos.y * SIZE + pos.z * SIZE * SIZE) as usize]
+        assert!(pos.x < CHUNK_SIZE && pos.y < CHUNK_SIZE && pos.z < CHUNK_SIZE);
+        self.blocks[(pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE) as usize]
     }
 
     fn try_set_block(&mut self, pos: BlockPos, state: BlockState) -> bool {
-        assert!(pos.x < SIZE && pos.y < SIZE && pos.z < SIZE);
-        self.blocks[(pos.x + pos.y * SIZE + pos.z * SIZE * SIZE) as usize] = state;
+        assert!(pos.x < CHUNK_SIZE && pos.y < CHUNK_SIZE && pos.z < CHUNK_SIZE);
+        self.blocks[(pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE) as usize] =
+            state;
         true
     }
 }
@@ -49,14 +51,14 @@ pub trait PaletteChunk {
 ///use 47% less memory than NativeChunk (4352 bytes vs 8192 bytes)
 pub struct Chunk8Bits {
     palette: [BlockState; 255], //256 is the size of an u8 - 1 for the air, we could use a Vec<BlockState> but it might be less efficient since it would be allocated on the heap
-    blocks: [u8; (SIZE * SIZE * SIZE) as usize],
+    blocks: [u8; (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) as usize],
 }
 
 impl Chunk8Bits {
     pub fn new() -> Chunk8Bits {
         Chunk8Bits {
             palette: [AVAILABLE_PALETTE_ENTRY; 255],
-            blocks: [0; (SIZE * SIZE * SIZE) as usize],
+            blocks: [0; (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) as usize],
         }
     }
 
@@ -108,16 +110,18 @@ impl PaletteChunk for Chunk8Bits {
 
 impl InMemoryChunk for Chunk8Bits {
     fn get_block(&self, pos: BlockPos) -> BlockState {
-        assert!(pos.x < SIZE && pos.y < SIZE && pos.z < SIZE);
-        let palette_index = self.blocks[(pos.x + pos.y * SIZE + pos.z * SIZE * SIZE) as usize];
+        assert!(pos.x < CHUNK_SIZE && pos.y < CHUNK_SIZE && pos.z < CHUNK_SIZE);
+        let palette_index =
+            self.blocks[(pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE) as usize];
         self.get_block_state_from_index(palette_index)
     }
 
     fn try_set_block(&mut self, pos: BlockPos, state: BlockState) -> bool {
-        assert!(pos.x < SIZE && pos.y < SIZE && pos.z < SIZE);
+        assert!(pos.x < CHUNK_SIZE && pos.y < CHUNK_SIZE && pos.z < CHUNK_SIZE);
         let get_or_create_palette_index = self.get_or_create_palette_index(state);
         if let Some(palette_index) = get_or_create_palette_index {
-            self.blocks[(pos.x + pos.y * SIZE + pos.z * SIZE * SIZE) as usize] = palette_index;
+            self.blocks[(pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE) as usize] =
+                palette_index;
             return true;
         }
         false
@@ -128,14 +132,14 @@ impl InMemoryChunk for Chunk8Bits {
 /// use 74% less memory than NativeChunk (2063 bytes vs 8192 bytes)
 pub struct Chunk4Bits {
     palette: [BlockState; 15], //16 is the size of an u8 - 1 for the air, we could use a Vec<BlockState> but it might be less efficient since it would be allocated on the heap
-    blocks: [u8; (SIZE * SIZE * SIZE / 2) as usize], //4 bits per block u4 doesn't exist in rust so we use u8...
+    blocks: [u8; (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE / 2) as usize], //4 bits per block u4 doesn't exist in rust so we use u8...
 }
 
 impl Chunk4Bits {
     pub fn new() -> Self {
         Self {
             palette: [AVAILABLE_PALETTE_ENTRY; 15], // a bit tricky, we use the fact that air is always 0, but in fact, we set two values at a time
-            blocks: [0; (SIZE * SIZE * SIZE / 2) as usize],
+            blocks: [0; (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE / 2) as usize],
         }
     }
 
@@ -194,9 +198,9 @@ impl PaletteChunk for Chunk4Bits {
 
 impl InMemoryChunk for Chunk4Bits {
     fn get_block(&self, pos: BlockPos) -> BlockState {
-        assert!(pos.x < SIZE && pos.y < SIZE && pos.z < SIZE);
+        assert!(pos.x < CHUNK_SIZE && pos.y < CHUNK_SIZE && pos.z < CHUNK_SIZE);
 
-        let linear_coord = pos.x + pos.y * SIZE + pos.z * SIZE * SIZE;
+        let linear_coord = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
         let array_index = linear_coord >> 1; //divide by 2
         let is_first_half = linear_coord & 1 == 0; //modulo 2
 
@@ -211,10 +215,10 @@ impl InMemoryChunk for Chunk4Bits {
     }
 
     fn try_set_block(&mut self, pos: BlockPos, state: BlockState) -> bool {
-        assert!(pos.x < SIZE && pos.y < SIZE && pos.z < SIZE);
+        assert!(pos.x < CHUNK_SIZE && pos.y < CHUNK_SIZE && pos.z < CHUNK_SIZE);
         let get_or_create_palette_index = self.get_or_create_palette_index(state);
         if let Some(palette_index) = get_or_create_palette_index {
-            let linear_coord = pos.x + pos.y * SIZE + pos.z * SIZE * SIZE;
+            let linear_coord = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
             let array_index = linear_coord >> 1; // divide by 2
             let is_first_half = linear_coord & 1 == 0; // modulo 2
 

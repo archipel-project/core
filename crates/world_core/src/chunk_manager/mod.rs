@@ -1,5 +1,7 @@
-use crate::chunk::{Chunk, ChunkPos};
-use math::{I16Vec3, IVec3, AABB};
+use crate::Chunk;
+use math::aabb::AABB;
+use math::positions::ChunkPos;
+use math::{I16Vec3, IVec3};
 use std::collections::HashMap;
 use utils::array_utils::ArrayUtils;
 
