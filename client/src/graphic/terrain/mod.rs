@@ -181,18 +181,12 @@ impl TerrainRenderer {
 
         //difference between two frustum
         let diff = |aabb, frustum1: &CameraFrustum, frustum2: &CameraFrustum| {
-            if frustum1.contains(&aabb) {
-                //if frustum2.totally_contains(&aabb) { false } //todo: early exit
-                if aabb.is_unit() {
-                    //if this is a chunk
+            frustum1.contains(&aabb)
+                && if aabb.is_unit() {
                     !(frustum2.contains(&aabb) && frustum2.get_aabb().intersects(&aabb))
-                //we keep it if it's not in the frustum2
                 } else {
                     true
-                } //it's too early to tell if we should keep it or not
-            } else {
-                false
-            } //we don't keep it if it's not in the frustum1
+                }
         };
 
         let chunks_to_remove = chunk_manager

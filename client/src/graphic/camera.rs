@@ -1,9 +1,11 @@
 use super::Context;
 use egui_winit::winit::event::WindowEvent;
 use math::aabb::AABB;
+use math::consts::CHUNK_SIZE_F;
 use math::positions::EntityPos;
-use math::{EulerRot, IVec3, Mat4, Quat, Vec3};
+use math::{EulerRot, Mat4, Quat, Vec3};
 use std::f32::consts::{FRAC_PI_2, PI};
+use std::ops::Mul;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -144,18 +146,58 @@ impl Camera {
         // yaw == -PI/2 <==> looking at x+
         // pitch == PI/2 <==> looking at y-
         // pitch == -PI/2 <==> looking at y
+        //todo: the math is weird, but it works
 
         let rotation = Quat::from_euler(EulerRot::XYZ, -self.pitch, self.yaw, 0.0).inverse();
 
         let (v_fov, h_fov) = self.get_FOVs();
-        const TOLERANCE: f32 = 0.0 * PI / 180.0;
 
-        let x_angle = v_fov * 0.5 + FRAC_PI_2 + TOLERANCE;
-        let y_angle = h_fov * 0.5 + FRAC_PI_2 + TOLERANCE;
-        let right = Quat::from_rotation_y(-x_angle) * Vec3::Z; //because Z is forward
-        let left = Quat::from_rotation_y(x_angle) * Vec3::Z;
-        let up = Quat::from_rotation_x(y_angle) * Vec3::Z;
-        let down = Quat::from_rotation_x(-y_angle) * Vec3::Z;
+        let height_normal_angle = v_fov * 0.5 + FRAC_PI_2;
+        let width_normal_angle = h_fov * 0.5 + FRAC_PI_2;
+        let right = Quat::from_rotation_y(-height_normal_angle) * Vec3::Z; //because Z is forward
+        let left = Quat::from_rotation_y(height_normal_angle) * Vec3::Z;
+        let up = Quat::from_rotation_x(width_normal_angle) * Vec3::Z;
+        let down = Quat::from_rotation_x(-width_normal_angle) * Vec3::Z;
+
+        let mut origin = self.position.chunk_pos;
+
+        let get_rotation = |v_fov: f32, h_fov: f32| {
+            let rotation = Quat::from_euler(EulerRot::XYZ, v_fov, h_fov, 0.0);
+            rotation
+        };
+
+        let get_corner = |local_rotation: Quat, dist: i32| {
+            let vec = rotation * local_rotation * Vec3::Z.mul(dist as f32);
+            (vec + self.position.relative_pos / CHUNK_SIZE_F).as_ivec3() + origin
+        };
+
+        let v_fov_2 = v_fov * 0.5;
+        let h_fov_2 = h_fov * 0.5;
+
+        let top_left = get_corner(get_rotation(v_fov_2, h_fov_2), render_distance);
+        let top_right = get_corner(get_rotation(-v_fov_2, h_fov_2), render_distance);
+        let bottom_left = get_corner(get_rotation(v_fov_2, -h_fov_2), render_distance);
+        let bottom_right = get_corner(get_rotation(-v_fov_2, -h_fov_2), render_distance);
+
+        //compute the intersection of the for plane tangents to the sides vectors of the frustum
+        let cosine = get_rotation(v_fov_2, h_fov_2).dot(Quat::IDENTITY);
+        let length = (render_distance as f32 / cosine) as i32;
+        let furthest = get_corner(Quat::IDENTITY, length);
+
+        let min = origin
+            .min(furthest)
+            .min(top_left)
+            .min(top_right)
+            .min(bottom_left)
+            .min(bottom_right);
+        let max = origin
+            .max(furthest)
+            .max(top_left)
+            .max(top_right)
+            .max(bottom_left)
+            .max(bottom_right);
+
+        let aabb = AABB::new(min, max);
 
         CameraFrustum {
             planes: [
@@ -165,31 +207,39 @@ impl Camera {
                 rotation * up,
                 rotation * down,
             ],
-            render_distance,
             origin: self.position,
+            aabb,
+            render_distance,
         }
     }
 }
 
 pub struct CameraFrustum {
     planes: [Vec3; 4],
-    render_distance: i32,
     origin: EntityPos,
+    aabb: AABB,
+    render_distance: i32,
 }
 
 impl CameraFrustum {
     pub fn contains(&self, aabb: &AABB) -> bool {
-        let is_behind = |normal_plane: Vec3| {
-            let corners = aabb.corners();
+        let corners = aabb.corners();
 
+        let is_behind = |normal_plane: Vec3| {
             for corner in corners {
-                let mut vec = corner - self.origin.chunk_pos;
-                vec *= 16;
-                if normal_plane.dot(vec.as_vec3() - self.origin.relative_pos) <= 0.0 {
+                let mut vec = (corner - self.origin.chunk_pos).as_vec3();
+                vec *= CHUNK_SIZE_F;
+                if normal_plane.dot(vec - self.origin.relative_pos) <= 0.0 {
                     return true;
                 }
             }
             false
+        };
+
+        let aabb_in_circle = || {
+            let closest = aabb.clamp(self.origin.chunk_pos);
+            let dist = (closest - self.origin.chunk_pos).length_squared();
+            dist <= self.render_distance * self.render_distance
         };
 
         for plane in self.planes {
@@ -197,36 +247,10 @@ impl CameraFrustum {
                 return false;
             }
         }
-        return true;
-    }
-
-    pub fn totally_contains(&self, aabb: &AABB) -> bool {
-        let corners = aabb.corners();
-        for corner in corners {
-            let vec = corner - self.origin.chunk_pos;
-            for plane in self.planes {
-                if plane.dot(vec.as_vec3()) < 0.0 {
-                    return false;
-                }
-            }
-        }
-        return true;
+        return aabb_in_circle();
     }
 
     pub fn get_aabb(&self) -> AABB {
-        //todo: improve this to be way more accurate/aggressive
-        let min = self.origin.chunk_pos
-            - IVec3::new(
-                self.render_distance,
-                self.render_distance,
-                self.render_distance,
-            );
-        let max = self.origin.chunk_pos
-            + IVec3::new(
-                self.render_distance,
-                self.render_distance,
-                self.render_distance,
-            );
-        AABB::new(min, max)
+        self.aabb
     }
 }

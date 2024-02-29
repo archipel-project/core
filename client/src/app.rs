@@ -233,7 +233,7 @@ impl App {
         Self::regenerate_cube(&mut chunk_manager, &mut generator);
 
         let terrain_renderer =
-            graphic::terrain::TerrainRenderer::new(&camera, 12, &chunk_manager, &graphic_context);
+            graphic::terrain::TerrainRenderer::new(&camera, 16, &chunk_manager, &graphic_context);
 
         Ok((
             Self {

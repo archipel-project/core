@@ -56,7 +56,15 @@ fn get_index_from_pos(pos: IVec3) -> usize {
     debug_assert!(pos.x >= 0, "x to small");
     debug_assert!(pos.y >= 0, "y to small");
     debug_assert!(pos.z >= 0, "z to small");
-    (pos.x + pos.y * NODE_SUBDIVISION + pos.z * NODE_SUBDIVISION * NODE_SUBDIVISION) as usize
+
+    //using a morton encoding
+    let mut output = 0;
+    for i in 0..4 {
+        output |= (pos.x & (1 << i)) << (i * 2);
+        output |= (pos.y & (1 << i)) << (i * 2 + 1);
+        output |= (pos.z & (1 << i)) << (i * 2 + 2);
+    }
+    output as usize
 }
 
 ///an iterator that give the index of the children that intersect the given AABB and satisfy the given predicate
@@ -382,10 +390,10 @@ impl<T: Node> Node for LevelN<T> {
 
 type Level2 = LevelN<Level1>;
 type Level3 = LevelN<Level2>;
-type Level4 = LevelN<Level3>;
+//type Level4 = LevelN<Level3>; //bigger level are not needed, the hashmap will take care of the rest
 
-///a section is a 4096 chunks wide cube
-type Section = Level4;
+///a section is a 512 chunks wide cube
+type Section = Level3; //also works with Level3
 
 ///this chunks manager cut the world in section of 4096 chunks, it has some cool properties:
 ///for all 32bits blockState position, there is a unique 16 bits region position, because :

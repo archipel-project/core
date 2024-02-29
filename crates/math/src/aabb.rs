@@ -83,4 +83,8 @@ impl AABB {
         let size = self.size();
         size.x == 1 && size.y == 1 && size.z == 1
     }
+
+    pub fn clamp(&self, pos: IVec3) -> IVec3 {
+        pos.clamp(self.min, self.max)
+    }
 }
