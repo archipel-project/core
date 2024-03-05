@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+/// Represents the size of memory in bytes, kilobytes, megabytes, or gigabytes. This is useful for displaying memory usage.
 pub enum MemorySize {
     Bytes(usize),
     KiloBytes(usize),

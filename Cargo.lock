@@ -424,6 +424,7 @@ dependencies = [
  "rand",
  "renet",
  "tuple_list",
+ "utils",
  "wgpu",
  "world_core",
 ]

@@ -120,7 +120,7 @@ impl Chunk {
     }
 
     ///get the position of the chunk in the world
-    pub fn get_position(&self) -> ChunkPos {
+    pub fn position(&self) -> ChunkPos {
         self.position
     }
 

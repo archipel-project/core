@@ -1,3 +1,5 @@
+/// Utils to get many references to the elements of an array
+
 pub trait ArrayUtils<T> {
     fn create_ref_iter<'a>(
         &'a self,

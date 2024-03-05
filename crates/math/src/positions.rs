@@ -5,7 +5,7 @@ use std::ops::{Add, AddAssign};
 /// A chunk position in the world, measured in chunks, valid from -2^27 to 2^27 - 1
 pub type ChunkPos = IVec3;
 
-/// A block position in the world, measured in blocks, valid from -2^31 to 2^31 - 1
+/// A block position in the world, measured in blocks, valid from -2^31 to 2^31 - 1,
 pub type BlockPos = IVec3;
 
 /// A world BlockPos for Entities or other things that need to be more precise than a block, it is a combination of a chunk position and a floating point block position

@@ -10,6 +10,7 @@ networking = { path = "../crates/networking" }
 world_core = { path = "../crates/world_core" }
 math = { path = "../crates/math" }
 gen = { path = "../crates/gen" }
+utils = { path = "../crates/utils" }
 
 renet = "0.0.14"
 bytemuck = "1.14.1"

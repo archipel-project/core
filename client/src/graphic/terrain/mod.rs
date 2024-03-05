@@ -1,63 +1,22 @@
+mod chunk_mesh;
+mod ordered_chunk_pos;
 mod texture_atlas;
 
 use super::camera::{Camera, CameraFrustum};
 use super::{Context, RenderJob};
-use crate::graphic::terrain::texture_atlas::{
-    TextureAtlas, TextureAtlasBuilder, TextureCoordinates,
-};
-use math::consts::CHUNK_SIZE;
-use math::positions::ChunkPos;
-use std::cmp::Ordering;
+use crate::graphic::terrain::chunk_mesh::ChunkMesh;
+use crate::graphic::terrain::ordered_chunk_pos::OrderedChunkPos;
+use crate::graphic::terrain::texture_atlas::{TextureAtlas, TextureAtlasBuilder};
 use std::collections::BTreeMap;
+use utils::spare_set::{Id, SparseSet};
 use wgpu::util::DeviceExt;
-use world_core::{block_state::AIR, ChunkManager};
-
-struct OrderedChunkPos(ChunkPos);
-
-impl From<ChunkPos> for OrderedChunkPos {
-    fn from(pos: ChunkPos) -> Self {
-        Self(pos)
-    }
-}
-
-impl Into<ChunkPos> for OrderedChunkPos {
-    fn into(self) -> ChunkPos {
-        self.0
-    }
-}
-
-impl Eq for OrderedChunkPos {}
-
-impl PartialEq<Self> for OrderedChunkPos {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl PartialOrd<Self> for OrderedChunkPos {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let x = self.0.x.cmp(&other.0.x);
-        if x != Ordering::Equal {
-            return Some(x);
-        }
-        let y = self.0.y.cmp(&other.0.y);
-        if y != Ordering::Equal {
-            return Some(y);
-        }
-        Some(self.0.z.cmp(&other.0.z))
-    }
-}
-
-impl Ord for OrderedChunkPos {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
-    }
-}
+use world_core::{Chunk, ChunkManager};
 
 pub struct TerrainRenderer {
     render_pipeline: wgpu::RenderPipeline,
     texture_atlas: TextureAtlas,
     chunks_meshes: BTreeMap<OrderedChunkPos, ChunkMesh>,
+    cache: MeshCache,
     render_distance: i32,
     last_frustum: CameraFrustum,
 }
@@ -151,11 +110,13 @@ impl TerrainRenderer {
             .get_chunk_with_predicate(frustum.get_aabb(), |aabb| frustum.contains(&aabb));
         for chunk in chunks_to_display {
             if let Some(mesh) =
-                ChunkMesh::build_from(chunk_manager, chunk.get_position(), &texture_atlas, context)
+                ChunkMesh::build_from(chunk_manager, chunk.position(), &texture_atlas, context)
             {
-                chunks_meshes.insert(chunk.get_position().into(), mesh);
+                chunks_meshes.insert(chunk.position().into(), mesh);
             }
         }
+
+        let cache_size = (render_distance as usize * 2).pow(3);
 
         Self {
             render_distance,
@@ -163,6 +124,7 @@ impl TerrainRenderer {
             texture_atlas,
             chunks_meshes,
             last_frustum: frustum,
+            cache: MeshCache::new(cache_size),
         }
     }
 
@@ -180,7 +142,7 @@ impl TerrainRenderer {
         let new_frustum = camera.get_frustum(self.render_distance);
 
         //difference between two frustum
-        let diff = |aabb, frustum1: &CameraFrustum, frustum2: &CameraFrustum| {
+        let frustum_diff = |aabb, frustum1: &CameraFrustum, frustum2: &CameraFrustum| {
             frustum1.contains(&aabb)
                 && if aabb.is_unit() {
                     !(frustum2.contains(&aabb) && frustum2.get_aabb().intersects(&aabb))
@@ -189,27 +151,39 @@ impl TerrainRenderer {
                 }
         };
 
-        let chunks_to_remove = chunk_manager
-            .get_chunk_with_predicate(old_frustum.get_aabb(), |aabb| {
-                diff(aabb, old_frustum, &new_frustum)
-            });
-        let chunks_to_display = chunk_manager
-            .get_chunk_with_predicate(new_frustum.get_aabb(), |aabb| {
-                diff(aabb, &new_frustum, old_frustum)
-            });
-
-        for chunk in chunks_to_remove {
-            self.chunks_meshes.remove(&chunk.get_position().into());
+        //add new visible chunks
+        {
+            let add_chunk = |id, chunk: &Chunk| {
+                let mesh = self.cache.get_mesh(id).unwrap_or_else(|| {
+                    ChunkMesh::build_from(
+                        chunk_manager,
+                        chunk.position(),
+                        &self.texture_atlas,
+                        context,
+                    )
+                });
+                if let Some(mesh) = mesh {
+                    self.chunks_meshes.insert(chunk.position().into(), mesh);
+                }
+            };
+            chunk_manager.foreach_chunk_with_predicate(
+                new_frustum.get_aabb(),
+                |aabb| frustum_diff(aabb, &new_frustum, old_frustum),
+                add_chunk,
+            );
         }
-        for chunk in chunks_to_display {
-            if let Some(mesh) = ChunkMesh::build_from(
-                chunk_manager,
-                chunk.get_position(),
-                &self.texture_atlas,
-                context,
-            ) {
-                self.chunks_meshes.insert(chunk.get_position().into(), mesh);
-            }
+
+        //remove old visible chunks
+        {
+            let remove_chunk = |id, chunk: &Chunk| {
+                let mesh = self.chunks_meshes.remove(&chunk.position().into());
+                self.cache.add_mesh(id, mesh);
+            };
+            chunk_manager.foreach_chunk_with_predicate(
+                old_frustum.get_aabb(),
+                |aabb| frustum_diff(aabb, old_frustum, &new_frustum),
+                remove_chunk,
+            );
         }
 
         self.last_frustum = new_frustum;
@@ -312,312 +286,46 @@ impl ChunkPosAttribute {
     }
 }
 
-struct ChunkMesh {
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    index_count: u32,
+struct MeshCache {
+    cached_meshes: SparseSet<(u16, Option<ChunkMesh>)>,
+    size: usize,
+    date: u16,
+    oldest: u16,
 }
 
-impl ChunkMesh {
-    fn build_from(
-        chunk_manager: &ChunkManager,
-        pos: ChunkPos,
-        texture_atlas: &TextureAtlas,
-        context: &Context,
-    ) -> Option<Self> {
-        let chunk = chunk_manager.get_chunk(pos)?;
-        if chunk.is_empty() {
-            return None;
-        }
-        let top_chunk = chunk_manager.get_chunk(pos + ChunkPos::new(0, 1, 0));
-        let bottom_chunk = chunk_manager.get_chunk(pos + ChunkPos::new(0, -1, 0));
-        let west_chunk = chunk_manager.get_chunk(pos + ChunkPos::new(-1, 0, 0));
-        let east_chunk = chunk_manager.get_chunk(pos + ChunkPos::new(1, 0, 0));
-        let north_chunk = chunk_manager.get_chunk(pos + ChunkPos::new(0, 0, -1));
-        let south_chunk = chunk_manager.get_chunk(pos + ChunkPos::new(0, 0, 1));
-
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-
-        enum Face {
-            Top,
-            Bottom,
-            West,  //x-
-            East,  //X+
-            North, //z-
-            South, //z+
-        }
-
-        let get_block_at = |x: i32, y: i32, z: i32| {
-            if x >= 0 && x < CHUNK_SIZE && y >= 0 && y < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE {
-                return chunk.get_block_at(x, y, z);
-            }
-            if x < 0 {
-                return west_chunk.map_or(AIR, |c| c.get_block_at(x + CHUNK_SIZE, y, z));
-            }
-            if x >= CHUNK_SIZE {
-                return east_chunk.map_or(AIR, |c| c.get_block_at(x - CHUNK_SIZE, y, z));
-            }
-            if y < 0 {
-                return bottom_chunk.map_or(AIR, |c| c.get_block_at(x, y + CHUNK_SIZE, z));
-            }
-            if y >= CHUNK_SIZE {
-                return top_chunk.map_or(AIR, |c| c.get_block_at(x, y - CHUNK_SIZE, z));
-            }
-            if z < 0 {
-                return north_chunk.map_or(AIR, |c| c.get_block_at(x, y, z + CHUNK_SIZE));
-            }
-            if z >= CHUNK_SIZE {
-                return south_chunk.map_or(AIR, |c| c.get_block_at(x, y, z - CHUNK_SIZE));
-            }
-            AIR
-        };
-
-        //no clue why but if (0, 0, 0) is the first corner of the block in minecraft
-        //then the second one is at (1, 1, -1), why the z is negative is beyond me
-        let mut add_face =
-            |x, y, z, face: Face, texture: TextureCoordinates, texture_index: u32| match face {
-                Face::Top => {
-                    vertices.push(Vertex {
-                        position: [x, y + 1.0, z - 1.0],
-                        texture_coords: [texture.x1, texture.y1],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x + 1.0, y + 1.0, z - 1.0],
-                        texture_coords: [texture.x2, texture.y1],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x + 1.0, y + 1.0, z],
-                        texture_coords: [texture.x2, texture.y2],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x, y + 1.0, z],
-                        texture_coords: [texture.x1, texture.y2],
-                        texture_index,
-                    });
-                    indices.push(vertices.len() as u32 - 2);
-                    indices.push(vertices.len() as u32 - 3);
-                    indices.push(vertices.len() as u32 - 4);
-
-                    indices.push(vertices.len() as u32 - 1);
-                    indices.push(vertices.len() as u32 - 2);
-                    indices.push(vertices.len() as u32 - 4);
-                }
-                Face::Bottom => {
-                    vertices.push(Vertex {
-                        position: [x, y, z - 1.0],
-                        texture_coords: [texture.x1, texture.y1],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x + 1.0, y, z - 1.0],
-                        texture_coords: [texture.x2, texture.y1],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x + 1.0, y, z],
-                        texture_coords: [texture.x2, texture.y2],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x, y, z],
-                        texture_coords: [texture.x1, texture.y2],
-                        texture_index,
-                    });
-                    indices.push(vertices.len() as u32 - 4);
-                    indices.push(vertices.len() as u32 - 3);
-                    indices.push(vertices.len() as u32 - 2);
-
-                    indices.push(vertices.len() as u32 - 4);
-                    indices.push(vertices.len() as u32 - 2);
-                    indices.push(vertices.len() as u32 - 1);
-                }
-                Face::West => {
-                    vertices.push(Vertex {
-                        position: [x, y, z - 1.0],
-                        texture_coords: [texture.x2, texture.y1],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x, y + 1.0, z - 1.0],
-                        texture_coords: [texture.x2, texture.y2],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x, y + 1.0, z],
-                        texture_coords: [texture.x1, texture.y2],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x, y, z],
-                        texture_coords: [texture.x1, texture.y1],
-                        texture_index,
-                    });
-                    indices.push(vertices.len() as u32 - 2);
-                    indices.push(vertices.len() as u32 - 3);
-                    indices.push(vertices.len() as u32 - 4);
-
-                    indices.push(vertices.len() as u32 - 1);
-                    indices.push(vertices.len() as u32 - 2);
-                    indices.push(vertices.len() as u32 - 4);
-                }
-                Face::East => {
-                    vertices.push(Vertex {
-                        position: [x + 1.0, y, z - 1.0],
-                        texture_coords: [texture.x1, texture.y1],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x + 1.0, y + 1.0, z - 1.0],
-                        texture_coords: [texture.x1, texture.y2],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x + 1.0, y + 1.0, z],
-                        texture_coords: [texture.x2, texture.y2],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x + 1.0, y, z],
-                        texture_coords: [texture.x2, texture.y1],
-                        texture_index,
-                    });
-                    indices.push(vertices.len() as u32 - 4);
-                    indices.push(vertices.len() as u32 - 3);
-                    indices.push(vertices.len() as u32 - 2);
-
-                    indices.push(vertices.len() as u32 - 4);
-                    indices.push(vertices.len() as u32 - 2);
-                    indices.push(vertices.len() as u32 - 1);
-                }
-                Face::North => {
-                    vertices.push(Vertex {
-                        position: [x, y, z - 1.0],
-                        texture_coords: [texture.x1, texture.y1],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x + 1.0, y, z - 1.0],
-                        texture_coords: [texture.x2, texture.y1],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x + 1.0, y + 1.0, z - 1.0],
-                        texture_coords: [texture.x2, texture.y2],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x, y + 1.0, z - 1.0],
-                        texture_coords: [texture.x1, texture.y2],
-                        texture_index,
-                    });
-                    indices.push(vertices.len() as u32 - 2);
-                    indices.push(vertices.len() as u32 - 3);
-                    indices.push(vertices.len() as u32 - 4);
-
-                    indices.push(vertices.len() as u32 - 1);
-                    indices.push(vertices.len() as u32 - 2);
-                    indices.push(vertices.len() as u32 - 4);
-                }
-                Face::South => {
-                    vertices.push(Vertex {
-                        position: [x, y, z],
-                        texture_coords: [texture.x2, texture.y1],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x + 1.0, y, z],
-                        texture_coords: [texture.x1, texture.y1],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x + 1.0, y + 1.0, z],
-                        texture_coords: [texture.x1, texture.y2],
-                        texture_index,
-                    });
-                    vertices.push(Vertex {
-                        position: [x, y + 1.0, z],
-                        texture_coords: [texture.x2, texture.y2],
-                        texture_index,
-                    });
-                    indices.push(vertices.len() as u32 - 4);
-                    indices.push(vertices.len() as u32 - 3);
-                    indices.push(vertices.len() as u32 - 2);
-
-                    indices.push(vertices.len() as u32 - 4);
-                    indices.push(vertices.len() as u32 - 2);
-                    indices.push(vertices.len() as u32 - 1);
-                }
-            };
-
-        for y in 0..CHUNK_SIZE {
-            for z in 0..CHUNK_SIZE {
-                for x in 0..CHUNK_SIZE {
-                    let blockstate = chunk.get_block_at(x, y, z);
-                    if blockstate == AIR {
-                        continue;
-                    }
-                    let blockstate = (blockstate - 1) as u32;
-
-                    let texture_coordinates = texture_atlas.get_texture_coordinates();
-                    let fx = x as f32;
-                    let fy = y as f32;
-                    let fz = z as f32;
-                    if get_block_at(x, y + 1, z) == AIR {
-                        add_face(fx, fy, fz, Face::Top, texture_coordinates, blockstate);
-                    }
-                    if get_block_at(x, y - 1, z) == AIR {
-                        add_face(fx, fy, fz, Face::Bottom, texture_coordinates, blockstate);
-                    }
-                    if get_block_at(x - 1, y, z) == AIR {
-                        add_face(fx, fy, fz, Face::West, texture_coordinates, blockstate);
-                    }
-                    if get_block_at(x + 1, y, z) == AIR {
-                        add_face(fx, fy, fz, Face::East, texture_coordinates, blockstate);
-                    }
-                    if get_block_at(x, y, z - 1) == AIR {
-                        add_face(fx, fy, fz, Face::North, texture_coordinates, blockstate);
-                    }
-                    if get_block_at(x, y, z + 1) == AIR {
-                        add_face(fx, fy, fz, Face::South, texture_coordinates, blockstate);
-                    }
-                }
-            }
-        }
-
-        if vertices.is_empty() && indices.is_empty() {
-            return None;
-        }
-
-        Some(Self::new(&context.wgpu_device, &vertices, &indices))
-    }
-
-    fn new(device: &wgpu::Device, vertices: &[Vertex], indices: &[u32]) -> Self {
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let index_count = indices.len() as u32;
+impl MeshCache {
+    fn new(size: usize) -> Self {
         Self {
-            vertex_buffer,
-            index_buffer,
-            index_count,
+            cached_meshes: SparseSet::with_capacity(size),
+            size,
+            date: 0,
+            oldest: 0,
         }
     }
 
-    fn draw<'pass>(&'pass self, render_pass: &mut wgpu::RenderPass<'pass>, pos_index: usize) {
-        let pos_index = pos_index as u32;
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        render_pass.draw_indexed(0..self.index_count, 0, pos_index..pos_index + 1);
+    ///get the mesh from the cache and remove if it exists
+    fn get_mesh(&mut self, chunk_id: Id) -> Option<Option<ChunkMesh>> {
+        self.cached_meshes.remove(chunk_id).map(|(_, mesh)| mesh)
+    }
+
+    fn add_mesh(&mut self, chunk_id: Id, mesh: Option<ChunkMesh>) {
+        if self.cached_meshes.len() >= self.size {
+            self.remove_oldest_mesh();
+        }
+
+        self.cached_meshes.insert(chunk_id, (self.date, mesh));
+        self.date = self.date.wrapping_add(1);
+    }
+
+    fn remove_oldest_mesh(&mut self) {
+        let mut oldest_id = None;
+        for (id, (date, _)) in self.cached_meshes.iter() {
+            if *date == self.oldest {
+                oldest_id = Some(id);
+                break;
+            }
+        }
+        self.cached_meshes.remove(oldest_id.unwrap());
+        self.oldest = self.oldest.wrapping_add(1);
     }
 }

@@ -3,7 +3,7 @@ use egui_winit::winit::event::WindowEvent;
 use math::aabb::AABB;
 use math::consts::CHUNK_SIZE_F;
 use math::positions::EntityPos;
-use math::{EulerRot, Mat4, Quat, Vec3};
+use math::{EulerRot, IVec3, Mat4, Quat, Vec3};
 use std::f32::consts::{FRAC_PI_2, PI};
 use std::ops::Mul;
 use wgpu::util::DeviceExt;
@@ -159,7 +159,8 @@ impl Camera {
         let up = Quat::from_rotation_x(width_normal_angle) * Vec3::Z;
         let down = Quat::from_rotation_x(-width_normal_angle) * Vec3::Z;
 
-        let mut origin = self.position.chunk_pos;
+        let origin =
+            self.position.chunk_pos + (self.position.relative_pos / CHUNK_SIZE_F).as_ivec3();
 
         let get_rotation = |v_fov: f32, h_fov: f32| {
             let rotation = Quat::from_euler(EulerRot::XYZ, v_fov, h_fov, 0.0);
@@ -197,7 +198,7 @@ impl Camera {
             .max(bottom_left)
             .max(bottom_right);
 
-        let aabb = AABB::new(min, max);
+        let aabb = AABB::new(min - IVec3::splat(1), max + IVec3::splat(1));
 
         CameraFrustum {
             planes: [
