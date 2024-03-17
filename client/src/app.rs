@@ -2,7 +2,7 @@ use crate::graphic;
 use crate::graphic::ui::GUIWrapper;
 use crate::graphic::FrameRenderer;
 use crate::networking::ClientNetworkHandler;
-use egui_winit::winit::event::{DeviceEvent, ElementState, Event, RawKeyEvent, WindowEvent};
+use egui_winit::winit::event::{DeviceEvent, ElementState, Event, MouseScrollDelta, RawKeyEvent, WindowEvent};
 use egui_winit::winit::event_loop::{EventLoop, EventLoopWindowTarget};
 use egui_winit::winit::keyboard::{KeyCode, PhysicalKey};
 use egui_winit::winit::window::WindowBuilder;
@@ -12,6 +12,7 @@ use math::{DVec3, Vec3};
 use std::f32::consts::{FRAC_PI_2, PI};
 use std::time::{Duration, Instant};
 use world_core::{Chunk, ChunkManager, MEMORY_MANAGER};
+use rand::Rng;
 
 fn main_menu(gui_wrapper: &mut GUIWrapper<GUIData>, ctx: &egui::Context, data: &mut GUIData) {
     egui::Window::new("Tool box").show(ctx, |ui| {
@@ -36,6 +37,7 @@ fn main_menu(gui_wrapper: &mut GUIWrapper<GUIData>, ctx: &egui::Context, data: &
             data.pitch * 180.0 / PI
         ));
         ui.label(format!("rendered mesh count: {}", data.rendered_mesh_count));
+        ui.label(format!("world seed: {}", data.world_seed));
     });
 }
 
@@ -59,6 +61,7 @@ struct GUIData {
     yaw: f32,
     pitch: f32,
     rendered_mesh_count: usize,
+    world_seed: i64,
 }
 
 struct CameraController {
@@ -70,6 +73,7 @@ struct CameraController {
     is_down_pressed: bool,
     mouse_x: f64,
     mouse_y: f64,
+    speed: f32,
 }
 
 impl CameraController {
@@ -83,6 +87,7 @@ impl CameraController {
             is_down_pressed: false,
             mouse_x: 0.0,
             mouse_y: 0.0,
+            speed: 40.0, // m/s
         }
     }
 
@@ -90,6 +95,13 @@ impl CameraController {
         match event {
             DeviceEvent::Key(raw_key) => {
                 self.input(&raw_key);
+            }
+            DeviceEvent::MouseWheel { delta } => {
+                self.speed += match delta {
+                    MouseScrollDelta::LineDelta(_, y) => -y / 25.0,
+                    MouseScrollDelta::PixelDelta(_) => 0.0,
+                };
+                self.speed = self.speed.clamp(0.0, 400.0);
             }
             DeviceEvent::MouseMotion { delta } => {
                 self.mouse_input(delta);
@@ -137,7 +149,6 @@ impl CameraController {
         self.mouse_x = 0.0;
         self.mouse_y = 0.0;
 
-        let speed = 40.0; //m/s
         let delta_time = delta_time.as_secs_f32();
         let mut direction = Vec3::ZERO;
         if self.is_front_pressed {
@@ -159,7 +170,7 @@ impl CameraController {
         if self.is_down_pressed {
             direction -= Vec3::Y;
         }
-        camera.position += direction.normalize_or_zero() * speed * delta_time;
+        camera.position += direction.normalize_or_zero() * self.speed * delta_time;
         camera.position.try_shrink();
     }
 }
@@ -174,6 +185,7 @@ pub struct App {
     terrain_renderer: graphic::terrain::TerrainRenderer,
     camera_controller: CameraController,
     chunk_manager: ChunkManager,
+    seed: i64,
 }
 
 impl App {
@@ -194,8 +206,8 @@ impl App {
             chunk_manager.insert_chunk(chunk);
         };
 
-        for x in -10..10 {
-            for z in -10..10 {
+        for x in -20..20 {
+            for z in -20..20 {
                 for y in -5..5 {
                     build_chunk(x, z, y);
                 }
@@ -219,7 +231,7 @@ impl App {
         let camera = graphic::camera::Camera::new(
             0.0,
             0.0,
-            EntityPos::from(0.0, 0.0, 2.0),
+            EntityPos::from(0.0, 0.0, 0.0),
             90.0 * PI / 180.0,
             ratio,
             &graphic_context,
@@ -228,7 +240,8 @@ impl App {
         //todo: move this to a better place, when the network will be implemented
         let mut chunk_manager = ChunkManager::new();
 
-        let mut generator = Generator::new("crates/gen/build/libs/generator-1.0.0.jar", 42)?;
+        let seed = rand::thread_rng().gen();
+        let mut generator = Generator::new("crates/gen/build/libs/generator-1.0.0.jar", seed)?;
 
         Self::regenerate_cube(&mut chunk_manager, &mut generator);
 
@@ -246,6 +259,7 @@ impl App {
                 terrain_renderer,
                 camera_controller: CameraController::new(),
                 chunk_manager,
+                seed,
             },
             event_loop,
         ))
@@ -312,6 +326,7 @@ impl App {
             yaw: self.camera.yaw,
             pitch: self.camera.pitch,
             rendered_mesh_count: self.terrain_renderer.rendered_mesh_count(),
+            world_seed: self.seed,
         };
 
         self.camera_controller

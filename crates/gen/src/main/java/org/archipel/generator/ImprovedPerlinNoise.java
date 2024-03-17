@@ -19,9 +19,7 @@ public class ImprovedPerlinNoise
 
         this.permutations = new int[512];
         for (int i = 0; i < 256; i++)
-        {
             this.permutations[i] = this.permutations[i + 256] = list.get(i);
-        }
     }
 
     public float fade(float t)
@@ -97,5 +95,4 @@ public class ImprovedPerlinNoise
 
         return result;
     }
-
 }

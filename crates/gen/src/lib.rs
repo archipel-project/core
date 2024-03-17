@@ -12,7 +12,7 @@ use std::path::Path;
 static JVM: JavaVM = {
     let jvm_args = InitArgsBuilder::new()
         .version(JNIVersion::V8)
-        .option("-Xcheck:jni")
+        //.option("-Xcheck:jni")
         .build()
         .unwrap();
 

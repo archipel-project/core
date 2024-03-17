@@ -24,12 +24,12 @@ impl ChunkMesh {
         if chunk.is_empty() {
             return None;
         }
-        let top_chunk = chunk_manager.get_chunk(pos + ChunkPos::new(0, 1, 0));
-        let bottom_chunk = chunk_manager.get_chunk(pos + ChunkPos::new(0, -1, 0));
-        let west_chunk = chunk_manager.get_chunk(pos + ChunkPos::new(-1, 0, 0));
-        let east_chunk = chunk_manager.get_chunk(pos + ChunkPos::new(1, 0, 0));
-        let north_chunk = chunk_manager.get_chunk(pos + ChunkPos::new(0, 0, -1));
-        let south_chunk = chunk_manager.get_chunk(pos + ChunkPos::new(0, 0, 1));
+        let top_chunk = chunk_manager.get_chunk(pos + ChunkPos::Y);
+        let bottom_chunk = chunk_manager.get_chunk(pos + ChunkPos::NEG_Y);
+        let west_chunk = chunk_manager.get_chunk(pos + ChunkPos::NEG_X);
+        let east_chunk = chunk_manager.get_chunk(pos + ChunkPos::X);
+        let north_chunk = chunk_manager.get_chunk(pos + ChunkPos::NEG_Z);
+        let south_chunk = chunk_manager.get_chunk(pos + ChunkPos::Z);
 
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
